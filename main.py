@@ -8,15 +8,18 @@ from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.metrics import mean_squared_error, r2_score
 import warnings
 
+# ignore convergence warnings from lasso/ridge
 warnings.filterwarnings("ignore")
 
 def load_data(roll_no, phase):
+    # setup file names based on my roll number and phase
     train_file = f"{roll_no}_train_var{phase}.csv"
     test_file = f"{roll_no}_test_var{phase}.csv"
     
     train_df = pd.read_csv(train_file)
     test_df = pd.read_csv(test_file)
     
+    # split target and features
     X_train = train_df.drop(columns=['y'])
     y_train = train_df['y']
     
@@ -27,6 +30,7 @@ def load_data(roll_no, phase):
 def find_best_model(X_train, y_train, max_degree, phase):
     degree_space = list(range(1, max_degree + 1)) 
     
+    # define pipelines with polynomial features and scaling for each model type
     pipelines = {
         'OLS': Pipeline([
             ('poly', PolynomialFeatures(include_bias=False)),
@@ -50,6 +54,7 @@ def find_best_model(X_train, y_train, max_degree, phase):
         ])
     }
 
+    # param grids to test out
     param_grids = {
         'OLS': {
             'poly__degree': degree_space
@@ -78,6 +83,7 @@ def find_best_model(X_train, y_train, max_degree, phase):
     print(f"{'Model':<12} | {'Degree':<6} | {'CV MSE':<10} | {'Std Error':<10} | {'Parameters'}")
     print("-" * 100)
     
+    # loop through models and find best params
     for name, pipeline in pipelines.items():
         grid_search = GridSearchCV(
             pipeline, 
@@ -89,6 +95,7 @@ def find_best_model(X_train, y_train, max_degree, phase):
         
         grid_search.fit(X_train, y_train)
         
+        # log all the results
         cv_res = grid_search.cv_results_
         for i in range(len(cv_res['params'])):
             mean_mse = -cv_res['mean_test_score'][i]
@@ -111,19 +118,22 @@ def find_best_model(X_train, y_train, max_degree, phase):
 
     df_results = pd.DataFrame(all_results)
     
+    # dump to csv so i can plot the learning curves later
     csv_log_name = f"cv_results_var{phase}.csv"
     df_results.to_csv(csv_log_name, index=False)
     print(f"\n[Info] Full CV logs saved to {csv_log_name} for graphing purposes.")
 
+    # find the absolute best model
     min_idx = df_results['Mean_MSE'].idxmin()
     abs_min_row = df_results.loc[min_idx]
     abs_min_mse = abs_min_row['Mean_MSE']
     abs_min_se = abs_min_row['SE_MSE']
     
+    # apply the 1-SE rule to avoid overfitting
     threshold = abs_min_mse + abs_min_se
-    
     candidates = df_results[df_results['Mean_MSE'] <= threshold].copy()
     
+    # sort by lowest degree first to pick the simplest model
     candidates.sort_values(by=['Degree', 'Mean_MSE'], ascending=[True, True], inplace=True)
     
     winner_row = candidates.iloc[0]
@@ -137,6 +147,7 @@ def find_best_model(X_train, y_train, max_degree, phase):
     print(f"1-SE Threshold: {abs_min_mse:.4f} + {abs_min_se:.4f} = {threshold:.4f}")
     print(f"Simplest model within threshold: {winner_name} (Degree {winner_degree}) with MSE {winner_mse:.4f}")
     
+    # retrain the winning model on the full training dataset
     final_pipeline = pipelines[winner_name]
     final_pipeline.set_params(**winner_params)
     final_pipeline.fit(X_train, y_train)
@@ -155,6 +166,7 @@ def process_phase(roll_no, phase, max_target_degree):
     train_r2 = r2_score(y_train, train_preds)
     print(f"\n=> Final Selected Model Full Train R2 Score: {train_r2:.4f}")
 
+    # export final predictions
     print("Generating predictions for test data...")
     test_predictions = best_model.predict(X_test)
     
@@ -165,7 +177,9 @@ def process_phase(roll_no, phase, max_target_degree):
 
 
 if __name__ == "__main__":
+    # my roll number
     ROLL_NUMBER = "BT2024192"
     
+    # run both phases with the requested max degrees
     process_phase(roll_no=ROLL_NUMBER, phase=1, max_target_degree=10)
     process_phase(roll_no=ROLL_NUMBER, phase=2, max_target_degree=20)
